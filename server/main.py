@@ -8,7 +8,7 @@ import numpy as np
 from typing import List
 from pydantic import BaseModel
 
-from fastapi import FastAPI, UploadFile, Body
+from fastapi import FastAPI, UploadFile
 from fastapi.responses import StreamingResponse
 
 from TTS.tts.configs.xtts_config import XttsConfig
@@ -22,17 +22,16 @@ if not torch.cuda.is_available() and device == "cuda":
     raise RuntimeError("CUDA device unavailable, please use Dockerfile.cpu instead.") 
 
 custom_model_path = os.environ.get("CUSTOM_MODEL_PATH", "/app/tts_models")
+default_model_name = os.environ.get("DEFAULT_MODEL_NAME", "tts_models/multilingual/multi-dataset/xtts_v2")
 
 if os.path.exists(custom_model_path) and os.path.isfile(custom_model_path + "/config.json"):
     model_path = custom_model_path
     print("Loading custom model from", model_path, flush=True)
 else:
-    print("Loading default model", flush=True)
-    model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
-    print("Downloading XTTS Model:", model_name, flush=True)
-    ModelManager().download_model(model_name)
-    model_path = os.path.join(get_user_data_dir("tts"), model_name.replace("/", "--"))
-    print("XTTS Model downloaded", flush=True)
+    print("Downloading the default model:", default_model_name, flush=True)
+    ModelManager().download_model(default_model_name)
+    model_path = os.path.join(get_user_data_dir("tts"), default_model_name.replace("/", "--"))
+    print("Model downloaded successfully", flush=True)
 
 print("Loading XTTS", flush=True)
 config = XttsConfig()
@@ -107,7 +106,7 @@ class StreamingInputs(BaseModel):
     stream_chunk_size: str = "20"
 
 
-def predict_streaming_generator(parsed_input: dict = Body(...)):
+def predict_streaming_generator(parsed_input: StreamingInputs):
     speaker_embedding = torch.tensor(parsed_input.speaker_embedding).unsqueeze(0).unsqueeze(-1)
     gpt_cond_latent = torch.tensor(parsed_input.gpt_cond_latent).reshape((-1, 1024)).unsqueeze(0)
     text = parsed_input.text
