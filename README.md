@@ -35,10 +35,10 @@ This server provides a unified REST API for text-to-speech synthesis that automa
 USE_CPU=1 uvicorn server.main:app --host 0.0.0.0 --port 8888
 
 # Or with Docker (CPU)
-docker run --rm -p 8888:8888 ghcr.io/hazemmeqdad/coqui-streaming-server:latest-cpu
+docker run --rm -p 8888:80 ghcr.io/hazemmeqdad/coqui-streaming-server:latest-cpu
 
 # Or with Docker (GPU - CUDA 11.8)
-docker run --rm --gpus all -p 8888:8888 ghcr.io/hazemmeqdad/coqui-streaming-server:latest
+docker run --rm --gpus all -p 8888:80 ghcr.io/hazemmeqdad/coqui-streaming-server:latest
 ```
 
 ### Using VITS
@@ -47,10 +47,10 @@ docker run --rm --gpus all -p 8888:8888 ghcr.io/hazemmeqdad/coqui-streaming-serv
 USE_CPU=1 DEFAULT_MODEL_NAME=tts_models/en/vctk/vits uvicorn server.main:app --host 0.0.0.0 --port 8888
 
 # Or with Docker (CPU)
-docker run --rm -p 8888:8888 -e DEFAULT_MODEL_NAME="tts_models/en/vctk/vits" ghcr.io/hazemmeqdad/coqui-streaming-server:latest-cpu
+docker run --rm -p 8888:80 -e DEFAULT_MODEL_NAME="tts_models/en/vctk/vits" ghcr.io/hazemmeqdad/coqui-streaming-server:latest-cpu
 
 # Or with Docker (GPU)
-docker run --rm --gpus all -p 8888:8888 -e DEFAULT_MODEL_NAME="tts_models/en/vctk/vits" ghcr.io/hazemmeqdad/coqui-streaming-server:latest
+docker run --rm --gpus all -p 8888:80 -e DEFAULT_MODEL_NAME="tts_models/en/vctk/vits" ghcr.io/hazemmeqdad/coqui-streaming-server:latest
 ```
 
 ## Environment Variables
@@ -219,19 +219,19 @@ Available Docker images for different configurations:
 
 ```bash
 # CPU-only with XTTS
-docker run --rm -p 8888:8888 -e USE_CPU=1 ghcr.io/hazemmeqdad/coqui-streaming-server:latest-cpu
+docker run --rm -p 8888:80 -e USE_CPU=1 ghcr.io/hazemmeqdad/coqui-streaming-server:latest-cpu
 
 # GPU with XTTS (CUDA 11.8) - Default
-docker run --rm --gpus all -p 8888:8888 ghcr.io/hazemmeqdad/coqui-streaming-server:latest
+docker run --rm --gpus all -p 8888:80 ghcr.io/hazemmeqdad/coqui-streaming-server:latest
 
 # GPU with XTTS (CUDA 12.1)
-docker run --rm --gpus all -p 8888:8888 ghcr.io/hazemmeqdad/coqui-streaming-server:latest-cuda121
+docker run --rm --gpus all -p 8888:80 ghcr.io/hazemmeqdad/coqui-streaming-server:latest-cuda121
 
 # VITS model with CPU
-docker run --rm -p 8888:8888 -e DEFAULT_MODEL_NAME="tts_models/en/vctk/vits" ghcr.io/hazemmeqdad/coqui-streaming-server:latest-cpu
+docker run --rm -p 8888:80 -e DEFAULT_MODEL_NAME="tts_models/en/vctk/vits" ghcr.io/hazemmeqdad/coqui-streaming-server:latest-cpu
 
 # VITS model with GPU (CUDA 11.8)
-docker run --rm --gpus all -p 8888:8888 -e DEFAULT_MODEL_NAME="tts_models/en/vctk/vits" ghcr.io/hazemmeqdad/coqui-streaming-server:latest
+docker run --rm --gpus all -p 8888:80 -e DEFAULT_MODEL_NAME="tts_models/en/vctk/vits" ghcr.io/hazemmeqdad/coqui-streaming-server:latest
 ```
 
 ### Available Image Tags:
