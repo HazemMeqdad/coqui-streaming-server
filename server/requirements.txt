@@ -1,6 +1,6 @@
 TTS @ git+https://github.com/coqui-ai/TTS
 uvicorn[standard]==0.23.2
-fastapi==0.103.2
+fastapi>=0.100.0,<0.105.0
 deepspeed==0.10.3
 pydantic>=2.0.0,<3.0.0
 python-multipart==0.0.6

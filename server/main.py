@@ -11,37 +11,29 @@ from pydantic import BaseModel
 from fastapi import FastAPI, UploadFile
 from fastapi.responses import StreamingResponse
 
-from TTS.tts.configs.xtts_config import XttsConfig
-from TTS.tts.models.xtts import Xtts
+from TTS.api import TTS
 from TTS.utils.generic_utils import get_user_data_dir
 from TTS.utils.manage import ModelManager
 
 torch.set_num_threads(int(os.environ.get("NUM_THREADS", os.cpu_count())))
 device = torch.device("cuda" if os.environ.get("USE_CPU", "0") == "0" else "cpu")
+
 if not torch.cuda.is_available() and device == "cuda":
-    raise RuntimeError("CUDA device unavailable, please use Dockerfile.cpu instead.") 
+    raise RuntimeError("CUDA device unavailable, please use Dockerfile.cpu instead.")
 
 custom_model_path = os.environ.get("CUSTOM_MODEL_PATH", "/app/tts_models")
-default_model_name = os.environ.get("DEFAULT_MODEL_NAME", "tts_models/multilingual/multi-dataset/xtts_v2")
+default_model_name = os.environ.get(
+    "DEFAULT_MODEL_NAME", "tts_models/multilingual/multi-dataset/xtts_v2"
+)
 
-if os.path.exists(custom_model_path) and os.path.isfile(custom_model_path + "/config.json"):
-    model_path = custom_model_path
-    print("Loading custom model from", model_path, flush=True)
-else:
-    print("Downloading the default model:", default_model_name, flush=True)
-    ModelManager().download_model(default_model_name)
-    model_path = os.path.join(get_user_data_dir("tts"), default_model_name.replace("/", "--"))
-    print("Model downloaded successfully", flush=True)
+print(f"Loading model: {default_model_name}", flush=True)
+model = TTS(
+    model_name=default_model_name, progress_bar=False, gpu=device.type == "cuda"
+)
 
-print("Loading XTTS", flush=True)
-config = XttsConfig()
-config.load_json(os.path.join(model_path, "config.json"))
-model = Xtts.init_from_config(config)
-model.load_checkpoint(config, checkpoint_dir=model_path, eval=True, use_deepspeed=True if device == "cuda" else False)
-model.to(device)
-print("XTTS Loaded.", flush=True)
-
-print("Running XTTS Server ...", flush=True)
+# Determine model type after loading
+MODEL_TYPE = "xtts" if "xtts" in default_model_name.lower() else "vits"
+print(f"Running {MODEL_TYPE.upper()} Server ...", flush=True)
 
 ##### Run fastapi #####
 app = FastAPI(
@@ -50,21 +42,6 @@ app = FastAPI(
     version="0.0.1",
     docs_url="/",
 )
-
-
-@app.post("/clone_speaker")
-def predict_speaker(wav_file: UploadFile):
-    """Compute conditioning inputs from reference audio file."""
-    temp_audio_name = next(tempfile._get_candidate_names())
-    with open(temp_audio_name, "wb") as temp, torch.inference_mode():
-        temp.write(io.BytesIO(wav_file.file.read()).getbuffer())
-        gpt_cond_latent, speaker_embedding = model.get_conditioning_latents(
-            temp_audio_name
-        )
-    return {
-        "gpt_cond_latent": gpt_cond_latent.cpu().squeeze().half().tolist(),
-        "speaker_embedding": speaker_embedding.cpu().squeeze().half().tolist(),
-    }
 
 
 def postprocess(wav):
@@ -98,87 +75,147 @@ def encode_audio_common(
 
 
 class StreamingInputs(BaseModel):
-    speaker_embedding: List[float]
-    gpt_cond_latent: List[List[float]]
     text: str
-    language: str
+    language: str = None
+    speaker_embedding: List[float] = None
+    gpt_cond_latent: List[List[float]] = None
+    speaker_idx: str = None  # For VITS models
     add_wav_header: bool = True
-    stream_chunk_size: str = "20"
-
-
-def predict_streaming_generator(parsed_input: StreamingInputs):
-    speaker_embedding = torch.tensor(parsed_input.speaker_embedding).unsqueeze(0).unsqueeze(-1)
-    gpt_cond_latent = torch.tensor(parsed_input.gpt_cond_latent).reshape((-1, 1024)).unsqueeze(0)
-    text = parsed_input.text
-    language = parsed_input.language
-
-    stream_chunk_size = int(parsed_input.stream_chunk_size)
-    add_wav_header = parsed_input.add_wav_header
-
-
-    chunks = model.inference_stream(
-        text,
-        language,
-        gpt_cond_latent,
-        speaker_embedding,
-        stream_chunk_size=stream_chunk_size,
-        enable_text_splitting=True
-    )
-
-    for i, chunk in enumerate(chunks):
-        chunk = postprocess(chunk)
-        if i == 0 and add_wav_header:
-            yield encode_audio_common(b"", encode_base64=False)
-            yield chunk.tobytes()
-        else:
-            yield chunk.tobytes()
+    stream_chunk_size: int = 20
 
 
 @app.post("/tts_stream")
 def predict_streaming_endpoint(parsed_input: StreamingInputs):
-    return StreamingResponse(
-        predict_streaming_generator(parsed_input),
-        media_type="audio/wav",
-    )
+    """Stream speech generation from text"""
+
+    def stream():
+        try:
+            # Prepare TTS arguments
+            tts_kwargs = {"text": parsed_input.text}
+
+            # Add speaker if specified
+            if parsed_input.speaker_idx is not None:
+                tts_kwargs["speaker"] = parsed_input.speaker_idx
+
+            # Add language if specified (mainly for XTTS)
+            if parsed_input.language is not None:
+                tts_kwargs["language"] = parsed_input.language
+
+            # Generate speech
+            out = model.tts(**tts_kwargs)
+
+            # Convert to audio format
+            wav = np.array(out)
+            wav = np.clip(wav, -1, 1)
+            wav = (wav * 32767).astype(np.int16)
+
+            # Stream in chunks
+            chunk_size = parsed_input.stream_chunk_size * 1024
+            if parsed_input.add_wav_header:
+                yield encode_audio_common(b"", encode_base64=False)
+
+            for i in range(0, len(wav), chunk_size):
+                yield wav[i : i + chunk_size].tobytes()
+
+        except Exception as e:
+            # For streaming, we can't raise HTTP exceptions, so we'll just stop the stream
+            print(f"Streaming TTS generation failed: {str(e)}", flush=True)
+            return
+
+    return StreamingResponse(stream(), media_type="audio/wav")
+
 
 class TTSInputs(BaseModel):
-    speaker_embedding: List[float]
-    gpt_cond_latent: List[List[float]]
     text: str
-    language: str
+    language: str = None
+    speaker_embedding: List[float] = None
+    gpt_cond_latent: List[List[float]] = None
+    speaker_idx: str = None  # For VITS models
+
 
 @app.post("/tts")
 def predict_speech(parsed_input: TTSInputs):
-    speaker_embedding = torch.tensor(parsed_input.speaker_embedding).unsqueeze(0).unsqueeze(-1)
-    gpt_cond_latent = torch.tensor(parsed_input.gpt_cond_latent).reshape((-1, 1024)).unsqueeze(0)
-    text = parsed_input.text
-    language = parsed_input.language
+    """Generate speech from text"""
+    try:
+        # Prepare TTS arguments
+        tts_kwargs = {"text": parsed_input.text}
 
-    out = model.inference(
-        text,
-        language,
-        gpt_cond_latent,
-        speaker_embedding,
-    )
+        # Add speaker if specified
+        if parsed_input.speaker_idx is not None:
+            tts_kwargs["speaker"] = parsed_input.speaker_idx
 
-    wav = postprocess(torch.tensor(out["wav"]))
+        # Add language if specified (mainly for XTTS)
+        if parsed_input.language is not None:
+            tts_kwargs["language"] = parsed_input.language
 
-    return encode_audio_common(wav.tobytes())
+        # Generate speech
+        out = model.tts(**tts_kwargs)
+
+        # Convert to audio format
+        wav = np.array(out)
+        wav = np.clip(wav, -1, 1)
+        wav = (wav * 32767).astype(np.int16)
+
+        return encode_audio_common(wav.tobytes())
+
+    except Exception as e:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=500, detail=f"TTS generation failed: {str(e)}")
 
 
 @app.get("/studio_speakers")
 def get_speakers():
-    if hasattr(model, "speaker_manager") and hasattr(model.speaker_manager, "speakers"):
-        return {
-            speaker: {
-                "speaker_embedding": model.speaker_manager.speakers[speaker]["speaker_embedding"].cpu().squeeze().half().tolist(),
-                "gpt_cond_latent": model.speaker_manager.speakers[speaker]["gpt_cond_latent"].cpu().squeeze().half().tolist(),
-            }
-            for speaker in model.speaker_manager.speakers.keys()
-        }
-    else:
-        return {}
-        
+    """Get available speakers for the current model"""
+    if hasattr(model, "speakers") and model.speakers:
+        return {name: {"speaker_idx": name} for name in model.speakers}
+    return {}
+
+
 @app.get("/languages")
 def get_languages():
-    return config.languages
+    """Get supported languages for the current model"""
+    return model.languages if hasattr(model, "languages") else []
+
+
+@app.get("/model_info")
+def get_model_info():
+    """Get comprehensive information about the loaded model"""
+    info = {
+        "model_type": MODEL_TYPE.upper(),
+        "model_name": default_model_name,
+        "device": str(device),
+        "supports_streaming": True,
+        "supports_voice_cloning": MODEL_TYPE == "xtts",
+        "languages": model.languages if hasattr(model, "languages") else [],
+        "speakers": (
+            list(model.speakers.keys())
+            if hasattr(model, "speakers") and model.speakers
+            else []
+        ),
+    }
+
+    # Add model-specific information
+    if MODEL_TYPE == "xtts":
+        info.update(
+            {
+                "note": "Voice cloning requires raw XTTS model loading, not available via TTS API"
+            }
+        )
+    elif MODEL_TYPE == "vits":
+        info.update(
+            {
+                "num_speakers": (
+                    len(model.speakers)
+                    if hasattr(model, "speakers") and model.speakers
+                    else 0
+                ),
+                "is_multi_speaker": (
+                    len(model.speakers) > 1
+                    if hasattr(model, "speakers") and model.speakers
+                    else False
+                ),
+            }
+        )
+
+    return info
