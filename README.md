@@ -23,6 +23,7 @@ This server provides a unified REST API for text-to-speech synthesis that automa
 - **Simplified TTS API**: Uses high-level TTS library for easy model management
 - **Universal Endpoints**: Same endpoints work with both model types
 - **Multi-speaker Support**: Both model types support multiple speakers via speaker selection
+- **Speed Control**: Adjust playback speed from 0.5x (slower) to 2.0x (faster) using librosa time-stretch
 - **Streaming Support**: Audio streaming for better user experience
 - **REST API**: Easy-to-use HTTP endpoints
 - **Error Handling**: Robust error handling and validation
@@ -70,7 +71,8 @@ Generate speech from text. Parameters adapt based on model type:
 ```json
 {
   "text": "Hello world",
-  "speaker_idx": "p225"
+  "speaker_idx": "p225",
+  "speed": 1.0
 }
 ```
 
@@ -78,9 +80,17 @@ Generate speech from text. Parameters adapt based on model type:
 ```json
 {
   "text": "Hello world",
-  "language": "en"
+  "language": "en",
+  "speed": 1.0
 }
 ```
+
+**Speed Control Parameter:**
+- `speed`: Controls the playback speed of generated audio
+  - `1.0` = Normal speed (default)
+  - `0.5` = Half speed (slower)
+  - `2.0` = Double speed (faster)
+  - Range: 0.5 to 2.0
 
 #### `POST /tts_stream`
 Stream audio generation (same parameters as `/tts` plus streaming options):
@@ -89,6 +99,7 @@ Stream audio generation (same parameters as `/tts` plus streaming options):
 {
   "text": "Hello world",
   "speaker_idx": "p225",
+  "speed": 1.0,
   "add_wav_header": true,
   "stream_chunk_size": "20"
 }
@@ -143,7 +154,8 @@ print(f"Available languages: {model_info['languages']}")
 if model_info['model_type'] == 'XTTS':
     payload = {
         "text": "Hello, this is XTTS speech!",
-        "language": "en"
+        "language": "en",
+        "speed": 1.0  # Normal speed, use 0.5 for slower, 2.0 for faster
     }
 else:
     # VITS usage with speaker selection
@@ -152,7 +164,8 @@ else:
     
     payload = {
         "text": "Hello, this is VITS speech!",
-        "speaker_idx": first_speaker
+        "speaker_idx": first_speaker,
+        "speed": 1.0  # Normal speed, use 0.5 for slower, 2.0 for faster
     }
 
 # Generate speech
@@ -183,10 +196,22 @@ curl -X POST http://localhost:8888/tts \
   -d '{"text": "Hello world", "language": "en"}' \
   --output speech.wav
 
-# Stream audio
+# Generate slower speech (half speed)
+curl -X POST http://localhost:8888/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello world", "language": "en", "speed": 0.5}' \
+  --output slow_speech.wav
+
+# Generate faster speech (double speed)
+curl -X POST http://localhost:8888/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello world", "language": "en", "speed": 2.0}' \
+  --output fast_speech.wav
+
+# Stream audio with speed control
 curl -X POST http://localhost:8888/tts_stream \
   -H "Content-Type: application/json" \
-  -d '{"text": "Hello world", "speaker_idx": "p225"}' \
+  -d '{"text": "Hello world", "speaker_idx": "p225", "speed": 1.5}' \
   --output stream.wav
 ```
 
@@ -196,6 +221,7 @@ curl -X POST http://localhost:8888/tts_stream \
 |---------|------|------|
 | Voice Cloning | ❌ (not available via TTS API) | ❌ |
 | Streaming | ✅ | ✅ |
+| Speed Control | ✅ | ✅ |
 | Multilingual | ✅ | ❌ (single language) |
 | Speaker Selection | ✅ | ✅ |
 | Quality | High | Very High |

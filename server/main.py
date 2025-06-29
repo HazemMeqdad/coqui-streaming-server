@@ -5,6 +5,7 @@ import tempfile
 import wave
 import torch
 import numpy as np
+import librosa
 from typing import List
 from pydantic import BaseModel
 
@@ -80,6 +81,7 @@ class StreamingInputs(BaseModel):
     speaker_embedding: List[float] = None
     gpt_cond_latent: List[List[float]] = None
     speaker_idx: str = None  # For VITS models
+    speed: float = 1.0  # Speed control: 0.5 = slower, 2.0 = faster
     add_wav_header: bool = True
     stream_chunk_size: int = 20
 
@@ -100,6 +102,10 @@ def predict_streaming_endpoint(parsed_input: StreamingInputs):
             # Add language if specified (mainly for XTTS)
             if parsed_input.language is not None:
                 tts_kwargs["language"] = parsed_input.language
+
+            # Add speed if specified
+            if parsed_input.speed is not None:
+                tts_kwargs["speed"] = parsed_input.speed
 
             # Generate speech
             out = model.tts(**tts_kwargs)
@@ -131,6 +137,7 @@ class TTSInputs(BaseModel):
     speaker_embedding: List[float] = None
     gpt_cond_latent: List[List[float]] = None
     speaker_idx: str = None  # For VITS models
+    speed: float = 1.0  # Speed control: 0.5 = slower, 2.0 = faster
 
 
 @app.post("/tts")
@@ -147,6 +154,10 @@ def predict_speech(parsed_input: TTSInputs):
         # Add language if specified (mainly for XTTS)
         if parsed_input.language is not None:
             tts_kwargs["language"] = parsed_input.language
+
+        # Add speed if specified
+        if parsed_input.speed is not None:
+            tts_kwargs["speed"] = parsed_input.speed
 
         # Generate speech
         out = model.tts(**tts_kwargs)
